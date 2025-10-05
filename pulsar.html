@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<title>Pulsar cibernético fractal — SVG + JS</title>
+<style>
+  html,body{margin:0;height:100%;background:#0b1020;color:#cbd5e1;font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial}
+  .hud{position:fixed;inset:auto 12px 12px auto;background:#0b1020cc;border:1px solid #334155;border-radius:12px;padding:10px 14px;font-size:13px}
+  .hud kbd{background:#111827;border:1px solid #374151;border-bottom-color:#1f2937;border-radius:6px;padding:1px 6px;font-weight:700}
+  svg{display:block;margin:auto;max-width:min(92vh,92vw)}
+</style>
+</head>
+<body>
+
+<svg id="scene" width="900" height="900" viewBox="-350 -350 700 700" role="img" aria-label="Pulsar cibernético fractal">
+  <defs>
+    <!-- brillo suave -->
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/><feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <!-- gradiente radial para el núcleo -->
+    <radialGradient id="core" cx="50%" cy="50%" r="60%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="50%" stop-color="#8ecaff"/>
+      <stop offset="100%" stop-color="#2dd4bf"/>
+    </radialGradient>
+  </defs>
+
+  <!-- fondo sutil -->
+  <circle r="340" fill="#0b1020"/>
+  <!-- rejilla polar tenue -->
+  <g id="grid" stroke="#1f2937" stroke-width="0.75">
+    <circle r="80" fill="none"/><circle r="160" fill="none"/><circle r="240" fill="none"/><circle r="320" fill="none"/>
+  </g>
+
+  <!-- núcleo -->
+  <g id="coreGroup" filter="url(#glow)">
+    <circle id="coreDot" r="18" fill="url(#core)" stroke="#a5f3fc" stroke-opacity="0.6" />
+  </g>
+
+  <!-- contenedor del fractal -->
+  <g id="fract"></g>
+</svg>
+
+<div class="hud">
+  <div>🌀 <strong>Pulsar fractal</strong> — autosimilitud + symmetry break</div>
+  <div>Teclas: <kbd>b</kbd> symmetry break · <kbd>p</kbd> pausa</div>
+</div>
+
+<script>
+(() => {
+  const svg = document.getElementById('scene');
+  const g = document.getElementById('fract');
+  const coreDot = document.getElementById('coreDot');
+
+  // Parámetros del sistema (puedes ajustar)
+  const ARMS = 8;           // número de brazos (simetría base)
+  const LEVELS = 8;         // niveles (profundidad fractal)
+  const STEP = 34;          // distancia entre nodos por nivel
+  const BASE_R = 14;        // radio base de los nodos
+  const SCALE = 0.78;       // escala de radio por nivel (autosimilitud)
+  const PULSE_AMP = 0.18;   // amplitud del pulso radial
+  const PULSE_SPEED = 0.9;  // velocidad del pulso
+  const ROT_SPEED = 0.12;   // rotación lenta del conjunto
+
+  let breakSym = true;      // symmetry break activado por defecto
+  let running = true;       // animación en marcha
+
+  // Preconstruimos elementos para rendimiento
+  const nodes = [];   // [arm][level] -> circle
+  const links = [];   // líneas entre niveles (decorativo)
+  for (let a = 0; a < ARMS; a++) {
+    nodes[a] = [];
+    for (let l = 0; l < LEVELS; l++) {
+      const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      c.setAttribute("fill", "none");
+      c.setAttribute("filter", "url(#glow)");
+      g.appendChild(c);
+      nodes[a][l] = c;
+      if (l > 0) {
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("fill", "none");
+        path.setAttribute("stroke-linecap", "round");
+        g.insertBefore(path, c); // debajo del nodo
+        links.push(path);
+      }
+    }
+  }
+
+  // Utilidades de color HSL
+  const hsl = (h, s, l, a=1) => `hsla(${h}, ${s}%, ${l}%, ${a})`;
+
+  // Animación
+  let t0 = performance.now();
+  function tick(now) {
+    if (!running) { requestAnimationFrame(tick); return; }
+    const t = (now - t0) / 1000;
+
+    // pulso del núcleo
+    const coreR = 14 + 3 * Math.sin(t * (PULSE_SPEED*1.2));
+    coreDot.setAttribute('r', coreR.toFixed(2));
+
+    const rot = t * ROT_SPEED; // rotación global
+    let linkIndex = 0;
+
+    for (let a = 0; a < ARMS; a++) {
+      // symmetry break: ligera desviación no uniforme por brazo
+      const skew = breakSym ? 0.12 * Math.sin(t*0.7 + a*1.7) : 0;
+      const angle = rot + (Math.PI * 2) * (a / ARMS) + skew;
+
+      for (let l = 0; l < LEVELS; l++) {
+        const phase = l * 0.65 + a * 0.12; // desfase por nivel/brazo
+        const pulse = 1 + PULSE_AMP * Math.sin(t * PULSE_SPEED + phase);
+        const dist = (l + 1) * STEP * pulse;
+        const x = Math.cos(angle) * dist;
+        const y = Math.sin(angle) * dist;
+
+        // radio autosimilar + micro-variación (symmetry break leve por nivel)
+        const r = BASE_R * Math.pow(SCALE, l) * (1 + 0.06 * Math.sin(t*0.9 + l*1.3));
+        const hue = (200 + a*20 + l*4) % 360;
+        const sat = 70 - l*3;
+        const light = 68 - l*4;
+
+        // nodo
+        const c = nodes[a][l];
+        c.setAttribute('cx', x.toFixed(2));
+        c.setAttribute('cy', y.toFixed(2));
+        c.setAttribute('r', r.toFixed(2));
+        c.setAttribute('stroke', hsl(hue, sat, light, 0.95));
+        c.setAttribute('stroke-width', Math.max(1.1, 2.6*Math.pow(SCALE, l)).toFixed(2));
+
+        // relleno tenue en niveles bajos para efecto "pulsar"
+        const fillAlpha = l < 2 ? 0.12 : 0.04;
+        c.setAttribute('fill', hsl((hue+10)%360, sat-10, light-10, fillAlpha));
+
+        // enlace curvo al nivel anterior
+        if (l > 0) {
+          const prevDist = l * STEP * (1 + PULSE_AMP * Math.sin(t * PULSE_SPEED + (l-1)*0.65 + a*0.12));
+          const x0 = Math.cos(angle) * prevDist;
+          const y0 = Math.sin(angle) * prevDist;
+          const midx = (x + x0)/2, midy = (y + y0)/2;
+          const nx = -Math.sin(angle), ny = Math.cos(angle); // normal para curva
+          const bulge = 6 + 12*Math.sin(t*0.5 + l*0.9 + a*0.4); // “respira”
+          const cx1 = midx + nx * bulge, cy1 = midy + ny * bulge;
+
+          const p = links[linkIndex++];
+          p.setAttribute('d', `M ${x0.toFixed(2)} ${y0.toFixed(2)} Q ${cx1.toFixed(2)} ${cy1.toFixed(2)} ${x.toFixed(2)} ${y.toFixed(2)}`);
+          p.setAttribute('stroke', hsl(hue, sat-10, light-12, 0.55));
+          p.setAttribute('stroke-width', Math.max(0.8, 1.8*Math.pow(SCALE, l)).toFixed(2));
+          p.setAttribute('filter', 'url(#glow)');
+        }
+      }
+    }
+
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  // Controles: b = symmetry break, p = pausa
+  window.addEventListener('keydown', (e) => {
+    if (e.key.toLowerCase() === 'b') {
+      breakSym = !breakSym;
+    } else if (e.key.toLowerCase() === 'p') {
+      running = !running;
+      if (running) { t0 = performance.now() - (t0); requestAnimationFrame(tick); }
+    }
+  });
+})();
+</script>
+</body>
+</html>
